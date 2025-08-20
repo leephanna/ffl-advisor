@@ -238,7 +238,9 @@ if raw_waiver.empty: raw_waiver=SAMPLES["waiver"]
 if raw_def.empty:    raw_def=SAMPLES["defense"]
 if raw_news.empty:   raw_news=SAMPLES["news"]
 
-roster, proj, waiver, dvps, news = map(normalize_columns, [raw_roster, raw_proj, raw_waiver, raw_def]) + [raw_news.copy()]
+# Normalize the four football tables; keep news as-is
+roster, proj, waiver, dvps = [normalize_columns(x) for x in [raw_roster, raw_proj, raw_waiver, raw_def]]
+news = raw_news.copy()
 
 # Merge DvP; guarantee def_rank exists
 if not dvps.empty and "team" in proj.columns and "opp" in proj.columns and set(["pos","team","def_rank"]).issubset(dvps.columns):
