@@ -1,4 +1,5 @@
-# app.py
+# Recreate patched files so you can download them again
+app_py = r'''# app.py
 # FFL Advisor — Streamlit one-file app (with embedded sample CSVs)
 # - Preloads sample data so you can click around instantly
 # - Paste your real CSV URLs in the sidebar later
@@ -6,10 +7,8 @@
 
 import os
 import io
-import time
 import json
 import typing as T
-from functools import lru_cache
 
 import pandas as pd
 import numpy as np
@@ -115,9 +114,8 @@ TE,CHI,20
 RB,CIN,12
 WR,SEA,14
 TE,SEA,16
-WR,GB,10
-TE,DAL,8
 WR,DAL,9
+TE,DAL,8
 RB,LAR,18
 WR,ARI,26
 RB,PHI,9
@@ -193,7 +191,7 @@ def fetch_csv(url: str) -> pd.DataFrame:
 def adj_for_defense(proj: float, def_rank: float, pos: str) -> float:
     if pos == "DEF":
         return proj
-    strength = np.clip((def_rank - 16) / 16.0, -1, 1)  # [-1,1]
+    strength = np.clip((def_rank - 16) / 16.0, -1, 1)
     return proj * (1 + 0.10 * strength)
 
 def adj_for_status(proj: float, status: str) -> float:
@@ -222,10 +220,9 @@ def slot_counts(league):
         "FLEX": league["flex_slots"]
     }
 
-def fill_lineup(players: pd.DataFrame, league: dict) -> T.Tuple[pd.DataFrame, pd.DataFrame]:
+def fill_lineup(players: pd.DataFrame, league: dict):
     if players.empty:
         return players, players
-
     df = players.copy()
     df["value"] = df.apply(lambda r: compute_value(r, league), axis=1)
     df = df.sort_values("value", ascending=False).reset_index(drop=True)
@@ -253,7 +250,7 @@ def fill_lineup(players: pd.DataFrame, league: dict) -> T.Tuple[pd.DataFrame, pd
     bench = df.loc[~df.index.isin(chosen_idx)].copy()
     return starters, bench
 
-def find_waivers(waiver_df: pd.DataFrame, roster_df: pd.DataFrame, top_n=10) -> pd.DataFrame:
+def find_waivers(waiver_df: pd.DataFrame, roster_df: pd.DataFrame, top_n=10):
     if waiver_df.empty:
         return waiver_df
     waiver_df = waiver_df.copy()
@@ -263,7 +260,7 @@ def find_waivers(waiver_df: pd.DataFrame, roster_df: pd.DataFrame, top_n=10) -> 
     waiver_df = waiver_df[~waiver_df["player"].astype(str).str.lower().isin(my_names)]
     return waiver_df.head(top_n)
 
-def signal_only_news(news_df: pd.DataFrame, limit=20) -> pd.DataFrame:
+def signal_only_news(news_df: pd.DataFrame, limit=20):
     if news_df.empty:
         return news_df
     df = news_df.copy()
@@ -310,7 +307,7 @@ with st.sidebar:
         else:
             lg[k] = st.number_input(k, value=float(v), step=0.5, format="%.2f")
 
-# Load data (use URLs if provided; otherwise embedded samples)
+# Load data (URLs or samples)
 raw_roster = fetch_csv(roster_url)
 raw_proj   = fetch_csv(proj_url)
 raw_waiver = fetch_csv(waiver_url)
@@ -332,9 +329,18 @@ news   = raw_news.copy()
 # Blend defense ranks into projections if provided
 if not dvps.empty and "team" in proj.columns and "opp" in proj.columns:
     if set(["pos","team","def_rank"]).issubset(set(dvps.columns)):
-        proj = pd.merge(proj, dvps[["pos","team","def_rank"]].rename(columns={"team":"opp"}),
-                        on=["pos","opp"], how="left")
-        proj["def_rank"] = proj["def_rank"].fillna(16)
+        merged = pd.merge(proj, dvps[["pos","team","def_rank"]].rename(columns={"team":"opp"}),
+                          on=["pos","opp"], how="left")
+        # If merge didn't add def_rank for some rows, fill neutral 16
+        if "def_rank" not in merged.columns:
+            merged["def_rank"] = 16
+        else:
+            merged["def_rank"] = merged["def_rank"].fillna(16)
+        proj = merged
+
+# Absolute safety net: ensure column exists even if no DvP provided
+if "def_rank" not in proj.columns:
+    proj["def_rank"] = 16
 
 # Merge roster info with projections so starters use the most complete rows
 if not proj.empty:
@@ -346,7 +352,7 @@ else:
 tab1, tab2, tab3, tab4 = st.tabs(["Optimize Lineup", "Waiver Targets", "Cheat Sheet", "News (Signals)"])
 
 with tab1:
-    st.subheader("Best Weekly Lineup (from sample data)")
+    st.subheader("Best Weekly Lineup (sample-ready)")
     starters, bench = fill_lineup(roster_proj, lg)
     if not starters.empty:
         slots = []
@@ -368,7 +374,7 @@ with tab1:
         starters["slot"] = slots
 
         st.success("✅ Suggested Starters")
-        st.dataframe(starters[["slot","player","pos","team","opp","proj","status","def_rank"] + ([ "value" ] if "value" in starters.columns else [])])
+        st.dataframe(starters[["slot","player","pos","team","opp","proj","status","def_rank","value"]])
 
         st.warning("🧠 Bench (next-best)")
         st.dataframe(bench[["player","pos","team","opp","proj","status","def_rank","value"]].head(25))
@@ -387,7 +393,7 @@ with tab1:
         st.info("Could not compute starters. Check column names in your CSVs.")
 
 with tab2:
-    st.subheader("Top Waiver / Free Agents (sample data)")
+    st.subheader("Top Waiver / Free Agents (sample-ready)")
     picks = find_waivers(waiver, roster, top_n=15)
     st.dataframe(picks[["player","pos","team","opp","proj","pct_owned","status","def_rank","value"]])
 
@@ -398,5 +404,91 @@ with tab3:
     st.dataframe(tmp.sort_values("value", ascending=False)[["player","pos","team","opp","proj","status","def_rank","value"]].head(200))
 
 with tab4:
-    st.subheader("Signal-Only NFL News (sample data)")
+    st.subheader("Signal-Only NFL News (sample-ready)")
     st.dataframe(signal_only_news(news))
+'''
+
+reqs_txt = """streamlit
+pandas
+numpy
+"""
+
+open('/mnt/data/app.py', 'w', encoding='utf-8').write(app_py)
+open('/mnt/data/requirements.txt', 'w', encoding='utf-8').write(reqs_txt)
+
+# Recreate sample CSVs
+open('/mnt/data/roster_sample.csv', 'w', encoding='utf-8').write("""player,pos,team,opp,status,bye
+Patrick Mahomes,QB,KC,BAL,Healthy,10
+Bijan Robinson,RB,ATL,TB,Healthy,12
+Nick Chubb,RB,CLE,CIN,Questionable,10
+Justin Jefferson,WR,MIN,GB,Healthy,6
+Amon-Ra St. Brown,WR,DET,CHI,Healthy,5
+Travis Kelce,TE,KC,BAL,Healthy,10
+James Conner,RB,ARI,LAR,Healthy,14
+Deebo Samuel,WR,SF,SEA,Healthy,9
+Dallas Goedert,TE,PHI,DAL,Healthy,10
+49ers D/ST,DEF,SF,SEA,Healthy,9
+""")
+
+open('/mnt/data/projections_sample.csv', 'w', encoding='utf-8').write("""player,pos,team,opp,proj,status
+Patrick Mahomes,QB,KC,BAL,24.8,Healthy
+Bijan Robinson,RB,ATL,TB,16.5,Healthy
+Nick Chubb,RB,CLE,CIN,13.9,Questionable
+Justin Jefferson,WR,MIN,GB,19.2,Healthy
+Amon-Ra St. Brown,WR,DET,CHI,17.6,Healthy
+Travis Kelce,TE,KC,BAL,15.3,Healthy
+James Conner,RB,ARI,LAR,12.1,Healthy
+Deebo Samuel,WR,SF,SEA,14.7,Healthy
+Dallas Goedert,TE,PHI,DAL,10.2,Healthy
+49ers D/ST,DEF,SF,SEA,7.0,Healthy
+Puka Nacua,WR,LAR,ARI,12.4,Healthy
+Rachaad White,RB,TB,ATL,11.3,Healthy
+Jayden Reed,WR,GB,MIN,11.6,Healthy
+Tony Pollard,RB,DAL,PHI,13.5,Healthy
+Tee Higgins,WR,CIN,CLE,12.9,Healthy
+""")
+
+open('/mnt/data/waiver_sample.csv', 'w', encoding='utf-8').write("""player,pos,team,opp,proj,percent_owned,status
+Puka Nacua,WR,LAR,ARI,12.4,72,Healthy
+Zach Charbonnet,RB,SEA,SF,8.8,48,Healthy
+Tank Dell,WR,HOU,JAX,11.1,55,Healthy
+Brock Bowers,TE,LV,DEN,8.9,41,Healthy
+Rico Dowdle,RB,DAL,PHI,7.6,22,Healthy
+Khalil Shakir,WR,BUF,NE,9.7,38,Healthy
+Tyjae Spears,RB,TEN,IND,8.4,36,Healthy
+Romeo Doubs,WR,GB,MIN,10.1,47,Healthy
+Jameson Williams,WR,DET,CHI,9.9,44,Healthy
+Chase Brown,RB,CIN,CLE,7.1,18,Healthy
+""")
+
+open('/mnt/data/defense_vs_pos_sample.csv', 'w', encoding='utf-8').write("""pos,team,def_rank
+QB,BAL,6
+RB,TB,7
+WR,GB,10
+TE,GB,12
+WR,CHI,28
+TE,CHI,20
+RB,CIN,12
+WR,SEA,14
+TE,SEA,16
+WR,DAL,9
+TE,DAL,8
+RB,LAR,18
+WR,ARI,26
+RB,PHI,9
+WR,PHI,7
+RB,IND,21
+WR,NE,15
+RB,DEN,14
+WR,MIN,20
+""")
+
+open('/mnt/data/news_signals_sample.csv', 'w', encoding='utf-8').write("""time,player,team,tag,blurb,source
+2025-08-18T14:05:00Z,Bijan Robinson,ATL,role,"Expected heavier red-zone usage this week.",Rotoworld
+2025-08-18T15:10:00Z,Nick Chubb,CLE,injury,"Limited in practice; true game-time decision.",Team Beat
+2025-08-18T16:40:00Z,Justin Jefferson,MIN,severe,"No limitations expected; trending up.",ESPN
+2025-08-19T12:30:00Z,Travis Kelce,KC,injury,"Veteran rest day; full go Sunday.",KC Reporter
+2025-08-19T18:15:00Z,Deebo Samuel,SF,role,"Increased slot snaps planned vs SEA.",Local Radio
+""")
+
+"Recreated patched files and sample CSVs."
